@@ -13,8 +13,11 @@ module ActiveMerchant
       LIVE_URL = 'https://www.ups.com'
       
       RESOURCES = {
-        :rates => 'ups.app/xml/Rate',
-        :track => 'ups.app/xml/Track'
+        :rates        => 'ups.app/xml/Rate',
+        :track        => 'ups.app/xml/Track',
+        :ship_confirm => 'ups.app/xml/ShipConfirm',
+        :ship_accept  => 'ups.app/xml/ShipAccept',
+        :void         => 'ups.app/xml/Void'
       }
       
       PICKUP_CODES = {
@@ -95,6 +98,14 @@ module ActiveMerchant
         parse_tracking_response(response, options)
       end
       
+      def void_shipment(tracking_number, options={})
+        options = @options.update(options)
+        access_request = build_access_request
+        void_request = build_void_request(tracking_number, options)
+        response = commit(:void, save_request(access_request + void_request), (options[:test] || false))
+        parse_void_response(response, options)
+      end
+      
       protected
       
       def upsified_location(location)
@@ -115,7 +126,7 @@ module ActiveMerchant
           access_request << XmlNode.new('UserId', @options[:login])
           access_request << XmlNode.new('Password', @options[:password])
         end
-        xml_request.to_s
+        '<?xml version="1.0" ?>' + xml_request.to_s
       end
       
       def build_rate_request(origin, destination, packages, options={})
@@ -209,6 +220,17 @@ module ActiveMerchant
           root_node << XmlNode.new('TrackingNumber', tracking_number.to_s)
         end
         xml_request.to_s
+      end
+      
+      def build_void_request(tracking_number, options={})
+        xml_request = XmlNode.new('VoidShipmentRequest') do |root_node|
+          root_node << XmlNode.new('Request') do |request|
+            request << XmlNode.new('RequestAction', 'Void')
+            request << XmlNode.new('RequestOption', '1')
+          end
+          root_node << XmlNode.new('ShipmentIdentificationNumber', tracking_number.to_s)
+        end
+        '<?xml version="1.0" encoding="UTF-8" ?>' + xml_request.to_s
       end
       
       def build_location_node(name,location,options={})
@@ -324,6 +346,14 @@ module ActiveMerchant
           :tracking_number => tracking_number)
       end
       
+      def parse_void_response(response, options={})
+        xml = REXML::Document.new(response)
+        success = response_success?(xml)
+        message = response_message(xml)
+        
+        [success, message]
+      end
+      
       def location_from_address_node(address)
         return nil unless address
         Location.new(
@@ -342,7 +372,7 @@ module ActiveMerchant
       end
       
       def response_message(xml)
-        xml.get_text('/*/Response/ResponseStatusDescription | /*/Response/Error/ErrorDescription').to_s
+        xml.get_text('/*/Response/Error/ErrorDescription | /*/Response/ResponseStatusDescription').to_s
       end
       
       def commit(action, request, test = false)
