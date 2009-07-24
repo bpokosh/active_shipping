@@ -106,6 +106,23 @@ module ActiveMerchant
         parse_void_response(response, options)
       end
       
+      def create_shipment(origin, destination, packages, options={})
+        origin, destination = upsified_location(origin), upsified_location(destination)
+        options = @options.merge(options)
+        packages = Array(packages)
+        access_request = build_access_request
+        shipment_confirm_request = build_shipment_confirm_request(origin, destination, packages, options)
+        response = commit(:ship_confirm, save_request(access_request + shipment_confirm_request), (options[:test] || false))
+        shipment_response = parse_shipment_confirm_response(origin, destination, packages, response, options)
+        if shipment_response.success?
+          shipment_accept_request = build_shipment_accept_request(shipment_response.shipment_digest)
+          response = commit(:ship_accept, save_request(access_request + shipment_accept_request), (options[:test] || false))
+          shipment_response = parse_shipment_accept_response(response, shipment_response)
+        else
+          shipment_response
+        end
+      end
+      
       protected
       
       def upsified_location(location)
@@ -125,6 +142,103 @@ module ActiveMerchant
           access_request << XmlNode.new('AccessLicenseNumber', @options[:key])
           access_request << XmlNode.new('UserId', @options[:login])
           access_request << XmlNode.new('Password', @options[:password])
+        end
+        '<?xml version="1.0" ?>' + xml_request.to_s
+      end
+      
+      def build_shipment_confirm_request(origin, destination, packages, options={})
+        packages = Array(packages)
+        xml_request = XmlNode.new('ShipmentConfirmRequest') do |root_node|
+          root_node << XmlNode.new('Request') do |request|
+            request << XmlNode.new('RequestAction', 'ShipConfirm')
+            request << XmlNode.new('RequestOption', 'nonvalidate') ### look into this
+          end
+          root_node << XmlNode.new('Shipment') do |shipment|
+            shipment << build_location_node('Shipper', (options[:shipper] || origin), options)
+            shipment << build_location_node('ShipTo', destination, options)
+            if options[:shipper] and options[:shipper] != origin
+              shipment << build_location_node('ShipFrom', origin, options)
+            end
+            shipment << XmlNode.new('Service') do |service|
+              service << XmlNode.new('Code', '03')
+            end
+            shipment << XmlNode.new('PaymentInformation') do |payment_information|
+              payment_information << XmlNode.new('Prepaid') do |prepaid|
+                prepaid << XmlNode.new('BillShipper') do |bill_shipper|
+                  if origin_account = @options[:origin_account] || options[:origin_account]
+                    bill_shipper << XmlNode.new('AccountNumber', origin_account)
+                  end
+                end
+              end
+            end
+            
+            packages.each do |package|
+              debugger if package.nil?
+              
+              
+              imperial = ['US','LR','MM'].include?(origin.country_code(:alpha2))
+              
+              shipment << XmlNode.new("Package") do |package_node|
+
+                
+                package_node << XmlNode.new("PackagingType") do |packaging_type|
+                  packaging_type << XmlNode.new("Code", '02')
+                end
+                
+                package_node << XmlNode.new("Dimensions") do |dimensions|
+                  dimensions << XmlNode.new("UnitOfMeasurement") do |units|
+                    units << XmlNode.new("Code", imperial ? 'IN' : 'CM')
+                  end
+                  [:length,:width,:height].each do |axis|
+                    value = ((imperial ? package.inches(axis) : package.cm(axis)).to_f*1000).round/1000.0 # 3 decimals
+                    dimensions << XmlNode.new(axis.to_s.capitalize, [value,0.1].max)
+                  end
+                end
+              
+                package_node << XmlNode.new("PackageWeight") do |package_weight|
+                  package_weight << XmlNode.new("UnitOfMeasurement") do |units|
+                    units << XmlNode.new("Code", imperial ? 'LBS' : 'KGS')
+                  end
+                  
+                  value = ((imperial ? package.lbs : package.kgs).to_f*1000).round/1000.0 # 3 decimals
+                  package_weight << XmlNode.new("Weight", [value,0.1].max)
+                end
+                
+                package_node << XmlNode.new("PackageServiceOptions") do |package_service_options|
+                  if package.value and package.currency
+                    package_service_options << XmlNode.new("InsuredValue") do |insured_value|
+                      insured_value << XmlNode.new("CurrencyCode", package.currency)
+                      insured_value << XmlNode.new("MonetaryValue", package.value)
+                    end
+                  end
+                end
+              
+              end
+              
+            end
+            
+          end
+          
+          root_node << XmlNode.new('LabelSpecification') do |label_specification|
+            label_specification << XmlNode.new('LabelPrintMethod') do |label_print_method|
+              label_print_method << XmlNode.new('Code', 'GIF')
+            end
+            label_specification << XmlNode.new('HTTPUserAgent', 'Mozilla/4.5')
+            label_specification << XmlNode.new('LabelImageFormat') do |label_image_format|
+              label_image_format << XmlNode.new('Code', 'GIF')
+            end
+          end
+          
+        end
+        '<?xml version="1.0" ?>' + xml_request.to_s
+      end
+      
+      def build_shipment_accept_request(shipment_digest)
+        xml_request = XmlNode.new('ShipmentAcceptRequest') do |root_node|
+          root_node << XmlNode.new('Request') do |request|
+            request << XmlNode.new('RequestAction', 'ShipAccept')
+          end
+          root_node << XmlNode.new('ShipmentDigest', shipment_digest)
         end
         '<?xml version="1.0" ?>' + xml_request.to_s
       end
@@ -239,6 +353,8 @@ module ActiveMerchant
         #                   * Shipment/(Shipper|ShipTo|ShipFrom)/AttentionName element
         #                   * Shipment/(Shipper|ShipTo|ShipFrom)/TaxIdentificationNumber element
         location_node = XmlNode.new(name) do |location_node|
+          location_node << XmlNode.new('Name', location.name) unless location.name.blank? or name != 'Shipper'
+          location_node << XmlNode.new('CompanyName', location.name) unless location.name.blank? or name == 'Shipper'
           location_node << XmlNode.new('PhoneNumber', location.phone.gsub(/[^\d]/,'')) unless location.phone.blank?
           location_node << XmlNode.new('FaxNumber', location.fax.gsub(/[^\d]/,'')) unless location.fax.blank?
           
@@ -258,7 +374,7 @@ module ActiveMerchant
             address << XmlNode.new("PostalCode", location.postal_code) unless location.postal_code.blank?
             address << XmlNode.new("CountryCode", location.country_code(:alpha2)) unless location.country_code(:alpha2).blank?
             address << XmlNode.new("ResidentialAddressIndicator", true) unless location.commercial? # the default should be that UPS returns residential rates for destinations that it doesn't know about
-            # not implemented: Shipment/(Shipper|ShipTo|ShipFrom)/Address/ResidentialAddressIndicator element
+            address << XmlNode.new("ResidentialAddress", true) unless location.commercial?
           end
         end
       end
@@ -284,6 +400,51 @@ module ActiveMerchant
           end
         end
         RateResponse.new(success, message, Hash.from_xml(response).values.first, :rates => rate_estimates, :xml => response, :request => last_request)
+      end
+      
+      def parse_shipment_confirm_response(origin, destination, packages, response, options={})
+        xml = REXML::Document.new(response)
+        success = response_success?(xml)
+        message = response_message(xml)
+        
+        if success
+          transportation_charges = xml.get_text('/ShipmentConfirmResponse/ShipmentCharges/TransportationCharges/MonetaryValue').to_s
+          service_options_charges = xml.get_text('/ShipmentConfirmResponse/ShipmentCharges/ServiceOptionsCharges/MonetaryValue').to_s
+          total_charges = xml.get_text('/ShipmentConfirmResponse/ShipmentCharges/TotalCharges/MonetaryValue').to_s
+          identification_number = xml.get_text('/ShipmentConfirmResponse/ShipmentIdentificationNumber').to_s
+          billing_weight = xml.get_text('/ShipmentConfirmResponse/BillingWeight/Weight').to_s
+          shipment_digest = xml.get_text('/ShipmentConfirmResponse/ShipmentDigest').to_s
+        end
+        
+        options = {:transportation_charges => transportation_charges,
+                   :service_options_charges => service_options_charges,
+                   :total_charges => total_charges,
+                   :identification_number => identification_number,
+                   :billing_weight => billing_weight,
+                   :shipment_digest => shipment_digest,
+                   :response => response,
+                   :request => last_request}
+        ShipmentResponse.new(success, message, Hash.from_xml(response).values.first, options)
+      end
+      
+      def parse_shipment_accept_response(response, shipment_response)
+        xml = REXML::Document.new(response)
+        shipment_response.success = response_success?(xml)
+        shipment_response.message = response_message(xml)
+        
+        if shipment_response.success
+          packages = []
+      
+          xml.elements.each('/*/ShipmentResults/PackageResults') do |package|
+            tracking_number = package.get_text('TrackingNumber').to_s
+            label = package.get_text('LabelImage/GraphicImage').to_s
+            packages << [tracking_number, label]
+          end
+          shipment_response.packages = packages
+          shipment_response.final_response = response
+          shipment_response.final_request = last_request
+        end
+        shipment_response
       end
       
       def parse_tracking_response(response, options={})

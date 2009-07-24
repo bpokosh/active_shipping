@@ -12,7 +12,8 @@ module ActiveMerchant #:nodoc:
                   :address3,
                   :phone,
                   :fax,
-                  :address_type
+                  :address_type,
+                  :name
       
       alias_method :zip, :postal_code
       alias_method :postal, :postal_code
@@ -34,6 +35,7 @@ module ActiveMerchant #:nodoc:
         @fax = options[:fax]
         raise ArgumentError.new('address_type must be either "residential" or "commercial"') if options[:address_type] and not (["residential", "commercial", ""]).include?(options[:address_type].to_s)
         @address_type = options[:address_type].nil? ? nil : options[:address_type].to_s
+        @name = options[:name]
       end
       
       def self.from(object, options={})
@@ -48,7 +50,8 @@ module ActiveMerchant #:nodoc:
           :address3 => [:address3],
           :phone => [:phone, :phone_number],
           :fax => [:fax, :fax_number],
-          :address_type => [:address_type]
+          :address_type => [:address_type],
+          :name => :name
         }
         attributes = {}
         hash_access = begin
@@ -82,6 +85,7 @@ module ActiveMerchant #:nodoc:
       
       def prettyprint
         chunks = []
+        chunks << @name unless @name.blank?
         chunks << [@address1,@address2,@address3].reject {|e| e.blank?}.join("\n")
         chunks << [@city,@province,@postal_code].reject {|e| e.blank?}.join(', ')
         chunks << @country
