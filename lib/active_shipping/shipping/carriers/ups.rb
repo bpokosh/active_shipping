@@ -160,7 +160,7 @@ module ActiveMerchant
               shipment << build_location_node('ShipFrom', origin, options)
             end
             shipment << XmlNode.new('Service') do |service|
-              service << XmlNode.new('Code', '03')
+              service << XmlNode.new('Code', (options[:service] || '03'))
             end
             shipment << XmlNode.new('PaymentInformation') do |payment_information|
               payment_information << XmlNode.new('Prepaid') do |prepaid|
