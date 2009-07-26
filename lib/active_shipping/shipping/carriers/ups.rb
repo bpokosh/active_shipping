@@ -208,7 +208,7 @@ module ActiveMerchant
                   if package.value and package.currency
                     package_service_options << XmlNode.new("InsuredValue") do |insured_value|
                       insured_value << XmlNode.new("CurrencyCode", package.currency)
-                      insured_value << XmlNode.new("MonetaryValue", package.value)
+                      insured_value << XmlNode.new("MonetaryValue", package.value / 100.0)
                     end
                   end
                 end
@@ -312,7 +312,7 @@ module ActiveMerchant
                   if package.value and package.currency
                     package_service_options << XmlNode.new("InsuredValue") do |insured_value|
                       insured_value << XmlNode.new("CurrencyCode", package.currency)
-                      insured_value << XmlNode.new("MonetaryValue", package.value)
+                      insured_value << XmlNode.new("MonetaryValue", package.value / 100.0)
                     end
                   end
                 end
