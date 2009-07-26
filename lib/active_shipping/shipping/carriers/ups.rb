@@ -443,6 +443,8 @@ module ActiveMerchant
         
         if shipment_response.success
           packages = []
+          
+          shipment_response.control_log = xml.get_text('/*/ShipmentResults/ControlLogReceipt/GraphicImage').to_s
       
           xml.elements.each('/*/ShipmentResults/PackageResults') do |package|
             tracking_number = package.get_text('TrackingNumber').to_s

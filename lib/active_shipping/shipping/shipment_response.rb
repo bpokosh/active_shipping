@@ -15,6 +15,7 @@ module ActiveMerchant #:nodoc:
       attr_accessor :success
       attr_reader :response, :request
       attr_accessor :final_response, :final_request
+      attr_accessor :control_log
       
       def initialize(success, message, params = {}, options = {})
         @identification_number = options[:identification_number]
