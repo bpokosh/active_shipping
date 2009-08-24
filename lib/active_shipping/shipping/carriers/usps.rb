@@ -207,7 +207,7 @@ module ActiveMerchant
         request = XmlNode.new('RateV3Request', :USERID => @options[:login]) do |rate_request|
           packages.each_with_index do |p,id|
             rate_request << XmlNode.new('Package', :ID => id.to_s) do |package|
-              package << XmlNode.new('Service', US_SERVICES[options[:service] || :all])
+              package << XmlNode.new('Service', 'ONLINE')
               package << XmlNode.new('ZipOrigination', strip_zip(origin_zip))
               package << XmlNode.new('ZipDestination', strip_zip(destination_zip))
               package << XmlNode.new('Pounds', 0)
@@ -306,7 +306,7 @@ module ActiveMerchant
         return false unless (root_node = response_node.elements['/IntlRateResponse | /RateV3Response'])
         domestic = (root_node.name == 'RateV3Response')
         
-        domestic_elements = ['Postage', 'CLASSID', 'MailService', 'Rate']
+        domestic_elements = ['Postage', 'CLASSID', 'MailService', 'CommercialRate']
         international_elements = ['Service', 'ID', 'SvcDescription', 'Postage']
         service_node, service_code_node, service_name_node, rate_node = domestic ? domestic_elements : international_elements
         
